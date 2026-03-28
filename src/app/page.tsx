@@ -77,7 +77,14 @@ export default function Dashboard() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Investment Dashboard</h1>
-            <p className="text-muted-foreground">Real-time performance overview</p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+              <p className="text-muted-foreground">Real-time performance overview</p>
+              {!loading && data?.summary?.exchangeRateUSDToTWD && (
+                <Badge variant="secondary" className="font-normal text-xs text-muted-foreground">
+                  1 USD = {data.summary.exchangeRateUSDToTWD.toFixed(2)} TWD
+                </Badge>
+              )}
+            </div>
           </div>
           <button
             onClick={fetchPortfolio}
