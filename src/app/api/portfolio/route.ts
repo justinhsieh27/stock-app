@@ -92,17 +92,19 @@ export async function GET() {
 
     // 3. Fetch live stock prices
     const tickerArray = Array.from(uniqueTickers);
-    const quotes = await yahooFinance.quote(tickerArray);
-    
-    // Create a map for quick lookup
     const priceMap = new Map<string, number>();
-    (quotes as any[]).forEach((quote: any) => {
-      if (quote.symbol && quote.regularMarketPrice) {
-         // Some TW stocks might need special handling if symbol doesn't match perfectly, 
-         // but yahoo-finance2 generally returns the requested symbol
-        priceMap.set(quote.symbol, quote.regularMarketPrice);
-      }
-    });
+    
+    if (tickerArray.length > 0) {
+      const quotes: any = await yahooFinance.quote(tickerArray);
+      // yahoo-finance2 returns a single object if only one ticker is requested, or an array for multiple
+      const quotesArray = Array.isArray(quotes) ? quotes : [quotes];
+      
+      quotesArray.forEach((quote: any) => {
+        if (quote && quote.symbol && quote.regularMarketPrice) {
+          priceMap.set(quote.symbol, quote.regularMarketPrice);
+        }
+      });
+    }
 
     // 4. Calculate performance metrics
     let summaryTotalCostTWD = 0;
@@ -148,6 +150,82 @@ export async function GET() {
 
   } catch (error: any) {
     console.error('Error processing portfolio:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const { action, payload } = body;
+
+    // 1. Read existing CSV
+    const csvFilePath = path.join(process.cwd(), 'STOCK.csv');
+    const fileContent = fs.readFileSync(csvFilePath, 'utf-8');
+    const records = parse(fileContent, {
+      columns: false,
+      skip_empty_lines: true,
+      relax_column_count: true,
+      from_line: 2 // Skip header
+    });
+
+    let updatedRecords = [...records];
+    
+    if (action === 'add') {
+      updatedRecords.push([
+        payload.Owner || '',
+        payload.Broker || '',
+        payload.Ticker || '',
+        payload.Name || '',
+        payload.Shares?.toString() || '0',
+        payload.Currency || 'USD',
+        payload.CostPrice?.toString() || '0'
+      ]);
+    } else if (action === 'edit') {
+      const index = updatedRecords.findIndex(r => r[2] === payload.Ticker && r[1] === payload.Broker);
+      if (index !== -1) {
+        updatedRecords[index] = [
+          payload.Owner || updatedRecords[index][0],
+          payload.Broker || updatedRecords[index][1],
+          payload.Ticker || updatedRecords[index][2],
+          payload.Name || updatedRecords[index][3],
+          payload.Shares?.toString() || updatedRecords[index][4],
+          payload.Currency || updatedRecords[index][5],
+          payload.CostPrice?.toString() || updatedRecords[index][6]
+        ];
+      } else {
+        return NextResponse.json({ success: false, error: 'Record not found to edit' }, { status: 404 });
+      }
+    } else if (action === 'delete') {
+      const index = updatedRecords.findIndex(r => r[2] === payload.Ticker && r[1] === payload.Broker);
+      if (index !== -1) {
+        updatedRecords.splice(index, 1);
+      } else {
+        return NextResponse.json({ success: false, error: 'Record not found to delete' }, { status: 404 });
+      }
+    } else {
+      return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });
+    }
+
+    // 2. Write back to CSV
+    // Format: 擁有者,交易商,股票代碼,股票名稱,股數,幣別,取得價格,,,,
+    const header = '擁有者,交易商,股票代碼,股票名稱,股數,幣別,取得價格,,,,';
+    const csvLines = [header];
+    
+    for (const record of updatedRecords) {
+      // pad with empty columns if necessary to make 11 columns in total
+      const paddedRecord = [...record];
+      while (paddedRecord.length < 11) {
+        paddedRecord.push('');
+      }
+      csvLines.push(paddedRecord.join(','));
+    }
+    
+    fs.writeFileSync(csvFilePath, csvLines.join('\n') + '\n', 'utf-8');
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error('Error modifying portfolio:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

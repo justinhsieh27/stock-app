@@ -4,13 +4,30 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ArrowDownRight, ArrowUpRight, Loader2, RefreshCw, TrendingUp } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Loader2, RefreshCw, TrendingUp, Plus, Pencil, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
+import { PortfolioDialog } from "@/components/PortfolioDialog";
 
 export default function Dashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
+
+  const handleDelete = async (item: any) => {
+    if (!confirm(`Are you sure you want to delete ${item.Ticker} (${item.Broker})?`)) return;
+    try {
+      const res = await fetch("/api/portfolio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", payload: item }),
+      });
+      if (res.ok) fetchPortfolio();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchPortfolio = async () => {
     setLoading(true);
@@ -86,14 +103,25 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          <button
-            onClick={fetchPortfolio}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 disabled:opacity-50 dark:bg-slate-900 dark:ring-slate-800 dark:hover:bg-slate-800 transition-all self-start sm:self-auto"
-          >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Refresh
-          </button>
+          <div className="flex gap-2 self-start sm:self-auto">
+            <button
+              onClick={() => {
+                setEditingItem(null);
+                setDialogOpen(true);
+              }}
+              className="flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 transition-all"
+            >
+              <Plus className="h-4 w-4" /> Add Holding
+            </button>
+            <button
+              onClick={fetchPortfolio}
+              disabled={loading}
+              className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 disabled:opacity-50 dark:bg-slate-900 dark:ring-slate-800 dark:hover:bg-slate-800 transition-all"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Summary Cards */}
@@ -177,20 +205,21 @@ export default function Dashboard() {
                   <TableHead className="text-right">Current Value</TableHead>
                   <TableHead className="text-right">Unrealized P/L</TableHead>
                   <TableHead className="text-right">Return %</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <TableCell key={j}><div className="h-4 w-full animate-pulse rounded bg-slate-100 dark:bg-slate-800" /></TableCell>
                       ))}
                     </TableRow>
                   ))
                 ) : data?.portfolio?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No holdings found.
                     </TableCell>
                   </TableRow>
@@ -217,6 +246,16 @@ export default function Dashboard() {
                           {formatPercent(item.ReturnPercent)}
                         </Badge>
                       </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => { setEditingItem(item); setDialogOpen(true); }} className="text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400">
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => handleDelete(item)} className="text-slate-500 hover:text-red-600 dark:hover:text-red-400">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -225,6 +264,12 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+      <PortfolioDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        initialData={editingItem}
+        onSuccess={fetchPortfolio}
+      />
     </div>
   );
 }
