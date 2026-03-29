@@ -91,7 +91,7 @@ export async function GET() {
     }
 
     // 3. Fetch live stock prices
-    const tickerArray = Array.from(uniqueTickers);
+    const tickerArray = Array.from(uniqueTickers).filter(t => t.toLowerCase() !== 'cash');
     const priceMap = new Map<string, number>();
     
     if (tickerArray.length > 0) {
@@ -111,7 +111,10 @@ export async function GET() {
     let summaryCurrentValueTWD = 0;
 
     const enrichedPortfolio = portfolio.map(item => {
-      const livePrice = priceMap.get(item.Ticker) || item.CostPrice; // Fallback to cost if not found
+      let livePrice = item.CostPrice;
+      if (item.Ticker.toLowerCase() !== 'cash') {
+        livePrice = priceMap.get(item.Ticker) || item.CostPrice; // Fallback to cost if not found
+      }
       
       item.CurrentPrice = livePrice;
       item.CurrentValue = item.Shares * livePrice;
