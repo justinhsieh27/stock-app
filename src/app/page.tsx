@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +51,28 @@ export default function Dashboard() {
   useEffect(() => {
     fetchPortfolio();
   }, []);
+
+  const pieData = useMemo(() => {
+    if (!data?.portfolio) return [];
+    
+    const allocation = data.portfolio.reduce((acc: any, item: any) => {
+      const currency = item.Currency || 'USD';
+      const twdValue = item.CurrentValueTWD || 0; 
+      acc[currency] = (acc[currency] || 0) + twdValue;
+      return acc;
+    }, {});
+    
+    return Object.entries(allocation).map(([name, value]) => ({
+      name,
+      value: value as number,
+    })).sort((a, b) => b.value - a.value);
+  }, [data]);
+
+  const CURRENCY_COLORS: Record<string, string> = {
+    USD: '#6366f1', // indigo-500
+    TWD: '#10b981', // emerald-500
+  };
+  const DEFAULT_COLORS = ['#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
   const formatCurrency = (value: number, currency: string = 'TWD') => {
     return new Intl.NumberFormat('zh-TW', {
@@ -188,6 +211,49 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Currency Allocation Chart */}
+        {!loading && pieData.length > 0 && (
+          <div className="flex">
+            <Card className="w-full md:w-1/2 lg:w-1/3">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Asset Allocation</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64 w-full mt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={80}
+                        dataKey="value"
+                        labelLine={false}
+                      >
+                        {pieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CURRENCY_COLORS[entry.name] || DEFAULT_COLORS[index % DEFAULT_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        formatter={(value: any) => formatCurrency(Number(value))}
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Legend 
+                        formatter={(value, entry: any) => {
+                          const { payload } = entry;
+                          const total = pieData.reduce((acc, curr) => acc + curr.value, 0);
+                          const percent = (payload.value / total) * 100;
+                          return <span className="text-sm font-medium ml-1 text-slate-700 dark:text-slate-300">{`${value} (${percent.toFixed(1)}%)`}</span>;
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Portfolio Table */}
         <Card className="overflow-hidden">
