@@ -74,20 +74,39 @@ export async function GET() {
       }
     });
 
-    // 2. Fetch Exchange Rate (USD to TWD)
+    // 2. Fetch Exchange Rates
     let usdToTwdRate = 30; // fallback
+    let usdToSgdRate = 1.35; // fallback
+    let usdToJpyRate = 150; // fallback
+
     try {
-      const fxResult: any = await yahooFinance.quote('TWD=X'); // or USDTWD=X
-      if (fxResult && fxResult.regularMarketPrice) {
-        usdToTwdRate = fxResult.regularMarketPrice;
-      } else {
+      const fxResults: any = await yahooFinance.quote(['TWD=X', 'SGD=X', 'JPY=X']);
+      const fxArray = Array.isArray(fxResults) ? fxResults : [fxResults];
+      
+      fxArray.forEach((fx: any) => {
+        if (fx && fx.symbol && fx.regularMarketPrice) {
+          if (fx.symbol === 'TWD=X') usdToTwdRate = fx.regularMarketPrice;
+          else if (fx.symbol === 'SGD=X') usdToSgdRate = fx.regularMarketPrice;
+          else if (fx.symbol === 'JPY=X') usdToJpyRate = fx.regularMarketPrice;
+        }
+      });
+
+      // If TWD=X fallback failed, try USDTWD=X
+      if (usdToTwdRate === 30) {
          const altFxResult: any = await yahooFinance.quote('USDTWD=X');
          if (altFxResult && altFxResult.regularMarketPrice) {
             usdToTwdRate = altFxResult.regularMarketPrice;
          }
       }
     } catch (fxError) {
-      console.error('Error fetching exchange rate:', fxError);
+      console.error('Error fetching exchange rates:', fxError);
+      // Fallback for TWD if batch failed
+      try {
+         const altFxResult: any = await yahooFinance.quote('USDTWD=X');
+         if (altFxResult && altFxResult.regularMarketPrice) {
+            usdToTwdRate = altFxResult.regularMarketPrice;
+         }
+      } catch(e) {}
     }
 
     // 3. Fetch live stock prices
@@ -122,7 +141,14 @@ export async function GET() {
       item.ReturnPercent = item.TotalCost > 0 ? (item.UnrealizedPL / item.TotalCost) * 100 : 0;
 
       // Calculate TWD localized values for summary
-      const fxRate = item.Currency === 'USD' ? usdToTwdRate : 1;
+      let fxRate = 1;
+      if (item.Currency === 'USD') {
+        fxRate = usdToTwdRate;
+      } else if (item.Currency === 'SGD') {
+        fxRate = usdToTwdRate / usdToSgdRate;
+      } else if (item.Currency === 'JPY') {
+        fxRate = usdToTwdRate / usdToJpyRate;
+      }
       
       item.TotalCostTWD = item.TotalCost * fxRate;
       item.CurrentValueTWD = item.CurrentValue * fxRate;
@@ -146,7 +172,9 @@ export async function GET() {
           currentValueTWD: summaryCurrentValueTWD,
           unrealizedPLTWD: summaryUnrealizedPLTWD,
           returnPercent: summaryReturnPercent,
-          exchangeRateUSDToTWD: usdToTwdRate
+          exchangeRateUSDToTWD: usdToTwdRate,
+          exchangeRateUSDTOSGD: usdToSgdRate,
+          exchangeRateUSDTOJPY: usdToJpyRate
         }
       }
     });

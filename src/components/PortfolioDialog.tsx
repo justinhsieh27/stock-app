@@ -215,6 +215,8 @@ export function PortfolioDialog({
               <SelectContent>
                 <SelectItem value="USD">USD</SelectItem>
                 <SelectItem value="TWD">TWD</SelectItem>
+                <SelectItem value="SGD">SGD</SelectItem>
+                <SelectItem value="JPY">JPY</SelectItem>
               </SelectContent>
             </Select>
           </div>

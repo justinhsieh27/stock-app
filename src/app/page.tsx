@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [showPieAmount, setShowPieAmount] = useState(false);
 
   const handleDelete = async (item: any) => {
     if (!confirm(`Are you sure you want to delete ${item.Ticker} (${item.Broker})?`)) return;
@@ -71,15 +72,18 @@ export default function Dashboard() {
   const CURRENCY_COLORS: Record<string, string> = {
     USD: '#6366f1', // indigo-500
     TWD: '#10b981', // emerald-500
+    SGD: '#f59e0b', // amber-500
+    JPY: '#ef4444', // red-500
   };
   const DEFAULT_COLORS = ['#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
   const formatCurrency = (value: number, currency: string = 'TWD') => {
+    const fractionDigits = currency === 'JPY' ? 0 : 2;
     return new Intl.NumberFormat('zh-TW', {
       style: 'currency',
       currency: currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
     }).format(value);
   };
 
@@ -120,9 +124,21 @@ export default function Dashboard() {
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
               <p className="text-muted-foreground">Real-time performance overview</p>
               {!loading && data?.summary?.exchangeRateUSDToTWD && (
-                <Badge variant="secondary" className="font-normal text-xs text-muted-foreground">
-                  1 USD = {data.summary.exchangeRateUSDToTWD.toFixed(2)} TWD
-                </Badge>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  <Badge variant="secondary" className="font-normal text-xs text-muted-foreground">
+                    1 USD = {data.summary.exchangeRateUSDToTWD.toFixed(2)} TWD
+                  </Badge>
+                  {data?.summary?.exchangeRateUSDTOSGD && data?.summary?.exchangeRateUSDToTWD && (
+                    <Badge variant="secondary" className="font-normal text-xs text-muted-foreground">
+                      1 SGD = {(data.summary.exchangeRateUSDToTWD / data.summary.exchangeRateUSDTOSGD).toFixed(2)} TWD
+                    </Badge>
+                  )}
+                  {data?.summary?.exchangeRateUSDTOJPY && data?.summary?.exchangeRateUSDToTWD && (
+                    <Badge variant="secondary" className="font-normal text-xs text-muted-foreground">
+                      1 JPY = {(data.summary.exchangeRateUSDToTWD / data.summary.exchangeRateUSDTOJPY).toFixed(4)} TWD
+                    </Badge>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -216,8 +232,14 @@ export default function Dashboard() {
         {!loading && pieData.length > 0 && (
           <div className="flex">
             <Card className="w-full md:w-1/2 lg:w-1/3">
-              <CardHeader className="pb-2">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Asset Allocation</CardTitle>
+                <button
+                  onClick={() => setShowPieAmount(!showPieAmount)}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 px-2 py-1 rounded transition-colors"
+                >
+                  {showPieAmount ? 'Show %' : 'Show Amount'}
+                </button>
               </CardHeader>
               <CardContent>
                 <div className="h-64 w-full mt-2">
@@ -244,6 +266,10 @@ export default function Dashboard() {
                           const { payload } = entry;
                           const total = pieData.reduce((acc, curr) => acc + curr.value, 0);
                           const percent = (payload.value / total) * 100;
+                          
+                          if (showPieAmount) {
+                            return <span className="text-sm font-medium ml-1 text-slate-700 dark:text-slate-300">{`${value} (${formatCurrency(payload.value)})`}</span>;
+                          }
                           return <span className="text-sm font-medium ml-1 text-slate-700 dark:text-slate-300">{`${value} (${percent.toFixed(1)}%)`}</span>;
                         }}
                       />
