@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Stock App
 
-## Getting Started
+A Next.js web app for tracking a stock portfolio from `STOCK.csv`.
 
-First, run the development server:
+## Requirements
+
+- Node.js 20 or newer
+- npm
+
+## Install
+
+After downloading or cloning this project from GitHub, run one command from the project folder:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+./install.sh
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The installer checks the local Node.js/npm setup, installs dependencies with `npm install`, and makes `run.sh` executable.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Run
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Start the web app with one command:
 
-## Learn More
+```bash
+./run.sh
+```
 
-To learn more about Next.js, take a look at the following resources:
+The app opens on [http://localhost:3000](http://localhost:3000). Before starting, `run.sh` checks whether another process is using port 3000 and stops it first.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+To use a different port:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+PORT=3001 ./run.sh
+```
 
-## Deploy on Vercel
+## Data
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Portfolio holdings are read from `STOCK.csv`. Keep the existing column order:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```text
+擁有者,交易商,股票代碼,股票名稱,股數,幣別,取得價格
+```
+
+Supported currencies are `TWD`, `USD`, `SGD`, and `JPY`.

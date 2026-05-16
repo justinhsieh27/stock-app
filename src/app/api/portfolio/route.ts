@@ -10,6 +10,31 @@ const yahooFinance = new _yahooFinance();
 export const dynamic = 'force-dynamic';
 export const revalidate = 60; // optionally revalidate every 60 seconds
 
+const CSV_HEADER = '擁有者,交易商,股票代碼,股票名稱,股數,幣別,取得價格,,,,';
+const SUPPORTED_CURRENCIES = new Set(['USD', 'TWD', 'SGD', 'JPY']);
+const QUOTE_TIMEOUT_MS = 12000;
+const csvFilePath = path.join(process.cwd(), 'STOCK.csv');
+
+type YahooQuote = {
+  symbol?: string;
+  regularMarketPrice?: number;
+};
+
+type PortfolioAction = 'add' | 'edit' | 'delete';
+
+type PortfolioRequestBody = {
+  action?: PortfolioAction;
+  payload?: {
+    Owner?: unknown;
+    Broker?: unknown;
+    Ticker?: unknown;
+    Name?: unknown;
+    Shares?: unknown;
+    Currency?: unknown;
+    CostPrice?: unknown;
+  };
+};
+
 export interface PortfolioItem {
   Owner: string;
   Broker: string;
@@ -29,50 +54,121 @@ export interface PortfolioItem {
   UnrealizedPLTWD?: number;
 }
 
+function toFiniteNumber(value: unknown, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeCurrency(value: unknown) {
+  const currency = String(value || 'USD').trim().toUpperCase();
+  return SUPPORTED_CURRENCIES.has(currency) ? currency : 'USD';
+}
+
+function normalizeTicker(value: unknown) {
+  return String(value || '').trim();
+}
+
+function getCell(row: unknown[], index: number) {
+  return String(row[index] || '').trim();
+}
+
+function readPortfolioRecords() {
+  const fileContent = fs.readFileSync(csvFilePath, 'utf-8');
+  return parse(fileContent, {
+    columns: false,
+    skip_empty_lines: true,
+    relax_column_count: true,
+    from_line: 2
+  }) as string[][];
+}
+
+function parsePortfolio(records: string[][]) {
+  const portfolio: PortfolioItem[] = [];
+  const uniqueTickers = new Set<string>();
+
+  records.forEach((row) => {
+    if (row.length >= 7 && row[2]) {
+      const shares = toFiniteNumber(row[4], NaN);
+      const costPrice = toFiniteNumber(row[6], NaN);
+      const ticker = normalizeTicker(row[2]);
+
+      if (ticker && Number.isFinite(shares) && Number.isFinite(costPrice)) {
+        portfolio.push({
+          Owner: getCell(row, 0),
+          Broker: getCell(row, 1),
+          Ticker: ticker,
+          Name: getCell(row, 3),
+          Shares: shares,
+          Currency: normalizeCurrency(row[5]),
+          CostPrice: costPrice,
+          TotalCost: shares * costPrice,
+          CurrentPrice: 0,
+          CurrentValue: 0,
+          UnrealizedPL: 0,
+          ReturnPercent: 0
+        });
+        uniqueTickers.add(ticker);
+      }
+    }
+  });
+
+  return { portfolio, uniqueTickers };
+}
+
+function csvEscape(value: unknown) {
+  const text = String(value ?? '');
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function writePortfolioRecords(records: string[][]) {
+  const csvLines = [CSV_HEADER];
+
+  for (const record of records) {
+    const paddedRecord = [...record];
+    while (paddedRecord.length < 11) {
+      paddedRecord.push('');
+    }
+    csvLines.push(paddedRecord.map(csvEscape).join(','));
+  }
+
+  fs.writeFileSync(csvFilePath, csvLines.join('\n') + '\n', 'utf-8');
+}
+
+async function quoteWithTimeout(symbols: string | string[]) {
+  return Promise.race([
+    yahooFinance.quote(symbols),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Yahoo Finance quote request timed out')), QUOTE_TIMEOUT_MS);
+    })
+  ]);
+}
+
+function quoteArray(result: unknown) {
+  if (!result) return [];
+  return Array.isArray(result) ? result : [result];
+}
+
+function isYahooQuote(value: unknown): value is YahooQuote {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasMarketPrice(value: unknown): value is YahooQuote & { regularMarketPrice: number } {
+  return isYahooQuote(value) && typeof value.regularMarketPrice === 'number' && Number.isFinite(value.regularMarketPrice);
+}
+
+function isPortfolioAction(value: unknown): value is PortfolioAction {
+  return value === 'add' || value === 'edit' || value === 'delete';
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Unexpected portfolio error';
+}
+
 export async function GET() {
   try {
     // 1. Read and parse the CSV
-    const csvFilePath = path.join(process.cwd(), 'STOCK.csv');
-    const fileContent = fs.readFileSync(csvFilePath, 'utf-8');
-    
-    // Parse CSV (skip header, handle empty lines)
-    const records = parse(fileContent, {
-      columns: false,
-      skip_empty_lines: true,
-      relax_column_count: true, // Handle those trailing commas
-      from_line: 2 // Skip header
-    });
-
-    const portfolio: PortfolioItem[] = [];
-    const uniqueTickers = new Set<string>();
-
-    records.forEach((row: any[]) => {
-      // row format based on STOCK.csv:
-      // [Owner, Broker, Ticker, Name, Shares, Currency, CostPrice, ...]
-      if (row.length >= 7 && row[2]) {
-        const shares = parseFloat(row[4]);
-        const costPrice = parseFloat(row[6]);
-        const ticker = row[2].trim();
-        
-        if (!isNaN(shares) && !isNaN(costPrice)) {
-          portfolio.push({
-            Owner: row[0].trim(),
-            Broker: row[1].trim(),
-            Ticker: ticker,
-            Name: row[3].trim(),
-            Shares: shares,
-            Currency: row[5].trim(),
-            CostPrice: costPrice,
-            TotalCost: shares * costPrice,
-            CurrentPrice: 0,
-            CurrentValue: 0,
-            UnrealizedPL: 0,
-            ReturnPercent: 0
-          });
-          uniqueTickers.add(ticker);
-        }
-      }
-    });
+    const records = readPortfolioRecords();
+    const { portfolio, uniqueTickers } = parsePortfolio(records);
 
     // 2. Fetch Exchange Rates
     let usdToTwdRate = 30; // fallback
@@ -80,11 +176,11 @@ export async function GET() {
     let usdToJpyRate = 150; // fallback
 
     try {
-      const fxResults: any = await yahooFinance.quote(['TWD=X', 'SGD=X', 'JPY=X']);
-      const fxArray = Array.isArray(fxResults) ? fxResults : [fxResults];
+      const fxResults = await quoteWithTimeout(['TWD=X', 'SGD=X', 'JPY=X']);
+      const fxArray = quoteArray(fxResults);
       
-      fxArray.forEach((fx: any) => {
-        if (fx && fx.symbol && fx.regularMarketPrice) {
+      fxArray.forEach((fx) => {
+        if (hasMarketPrice(fx) && fx.symbol) {
           if (fx.symbol === 'TWD=X') usdToTwdRate = fx.regularMarketPrice;
           else if (fx.symbol === 'SGD=X') usdToSgdRate = fx.regularMarketPrice;
           else if (fx.symbol === 'JPY=X') usdToJpyRate = fx.regularMarketPrice;
@@ -93,8 +189,8 @@ export async function GET() {
 
       // If TWD=X fallback failed, try USDTWD=X
       if (usdToTwdRate === 30) {
-         const altFxResult: any = await yahooFinance.quote('USDTWD=X');
-         if (altFxResult && altFxResult.regularMarketPrice) {
+         const altFxResult = await quoteWithTimeout('USDTWD=X');
+         if (hasMarketPrice(altFxResult)) {
             usdToTwdRate = altFxResult.regularMarketPrice;
          }
       }
@@ -102,11 +198,11 @@ export async function GET() {
       console.error('Error fetching exchange rates:', fxError);
       // Fallback for TWD if batch failed
       try {
-         const altFxResult: any = await yahooFinance.quote('USDTWD=X');
-         if (altFxResult && altFxResult.regularMarketPrice) {
+         const altFxResult = await quoteWithTimeout('USDTWD=X');
+         if (hasMarketPrice(altFxResult)) {
             usdToTwdRate = altFxResult.regularMarketPrice;
          }
-      } catch(e) {}
+      } catch {}
     }
 
     // 3. Fetch live stock prices
@@ -114,15 +210,19 @@ export async function GET() {
     const priceMap = new Map<string, number>();
     
     if (tickerArray.length > 0) {
-      const quotes: any = await yahooFinance.quote(tickerArray);
-      // yahoo-finance2 returns a single object if only one ticker is requested, or an array for multiple
-      const quotesArray = Array.isArray(quotes) ? quotes : [quotes];
-      
-      quotesArray.forEach((quote: any) => {
-        if (quote && quote.symbol && quote.regularMarketPrice) {
-          priceMap.set(quote.symbol, quote.regularMarketPrice);
-        }
-      });
+      try {
+        const quotes = await quoteWithTimeout(tickerArray);
+        // yahoo-finance2 returns a single object if only one ticker is requested, or an array for multiple
+        const quotesArray = quoteArray(quotes);
+
+        quotesArray.forEach((quote) => {
+          if (hasMarketPrice(quote) && quote.symbol) {
+            priceMap.set(quote.symbol, quote.regularMarketPrice);
+          }
+        });
+      } catch (priceError) {
+        console.error('Error fetching stock prices:', priceError);
+      }
     }
 
     // 4. Calculate performance metrics
@@ -179,84 +279,84 @@ export async function GET() {
       }
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error processing portfolio:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = await req.json() as PortfolioRequestBody;
     const { action, payload } = body;
+    const normalizedPayload = {
+      Owner: String(payload?.Owner || '').trim(),
+      Broker: String(payload?.Broker || '').trim(),
+      Ticker: normalizeTicker(payload?.Ticker),
+      Name: String(payload?.Name || '').trim(),
+      Shares: toFiniteNumber(payload?.Shares, NaN),
+      Currency: normalizeCurrency(payload?.Currency),
+      CostPrice: toFiniteNumber(payload?.CostPrice, NaN)
+    };
+
+    if (!isPortfolioAction(action)) {
+      return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });
+    }
+
+    if (!normalizedPayload.Ticker || (action !== 'add' && !normalizedPayload.Broker)) {
+      return NextResponse.json({ success: false, error: 'Ticker and broker are required' }, { status: 400 });
+    }
+
+    if (action !== 'delete' && (!Number.isFinite(normalizedPayload.Shares) || !Number.isFinite(normalizedPayload.CostPrice))) {
+      return NextResponse.json({ success: false, error: 'Shares and cost price must be valid numbers' }, { status: 400 });
+    }
 
     // 1. Read existing CSV
-    const csvFilePath = path.join(process.cwd(), 'STOCK.csv');
-    const fileContent = fs.readFileSync(csvFilePath, 'utf-8');
-    const records = parse(fileContent, {
-      columns: false,
-      skip_empty_lines: true,
-      relax_column_count: true,
-      from_line: 2 // Skip header
-    });
+    const records = readPortfolioRecords();
 
-    let updatedRecords = [...records];
+    const updatedRecords = [...records];
     
     if (action === 'add') {
       updatedRecords.push([
-        payload.Owner || '',
-        payload.Broker || '',
-        payload.Ticker || '',
-        payload.Name || '',
-        payload.Shares?.toString() || '0',
-        payload.Currency || 'USD',
-        payload.CostPrice?.toString() || '0'
+        normalizedPayload.Owner,
+        normalizedPayload.Broker,
+        normalizedPayload.Ticker,
+        normalizedPayload.Name,
+        normalizedPayload.Shares.toString(),
+        normalizedPayload.Currency,
+        normalizedPayload.CostPrice.toString()
       ]);
     } else if (action === 'edit') {
-      const index = updatedRecords.findIndex(r => r[2] === payload.Ticker && r[1] === payload.Broker);
+      const index = updatedRecords.findIndex(r => normalizeTicker(r[2]) === normalizedPayload.Ticker && getCell(r, 1) === normalizedPayload.Broker);
       if (index !== -1) {
         updatedRecords[index] = [
-          payload.Owner || updatedRecords[index][0],
-          payload.Broker || updatedRecords[index][1],
-          payload.Ticker || updatedRecords[index][2],
-          payload.Name || updatedRecords[index][3],
-          payload.Shares?.toString() || updatedRecords[index][4],
-          payload.Currency || updatedRecords[index][5],
-          payload.CostPrice?.toString() || updatedRecords[index][6]
+          normalizedPayload.Owner || updatedRecords[index][0],
+          normalizedPayload.Broker || updatedRecords[index][1],
+          normalizedPayload.Ticker || updatedRecords[index][2],
+          normalizedPayload.Name || updatedRecords[index][3],
+          normalizedPayload.Shares.toString(),
+          normalizedPayload.Currency,
+          normalizedPayload.CostPrice.toString()
         ];
       } else {
         return NextResponse.json({ success: false, error: 'Record not found to edit' }, { status: 404 });
       }
     } else if (action === 'delete') {
-      const index = updatedRecords.findIndex(r => r[2] === payload.Ticker && r[1] === payload.Broker);
+      const index = updatedRecords.findIndex(r => normalizeTicker(r[2]) === normalizedPayload.Ticker && getCell(r, 1) === normalizedPayload.Broker);
       if (index !== -1) {
         updatedRecords.splice(index, 1);
       } else {
         return NextResponse.json({ success: false, error: 'Record not found to delete' }, { status: 404 });
       }
-    } else {
-      return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });
     }
 
     // 2. Write back to CSV
     // Format: 擁有者,交易商,股票代碼,股票名稱,股數,幣別,取得價格,,,,
-    const header = '擁有者,交易商,股票代碼,股票名稱,股數,幣別,取得價格,,,,';
-    const csvLines = [header];
-    
-    for (const record of updatedRecords) {
-      // pad with empty columns if necessary to make 11 columns in total
-      const paddedRecord = [...record];
-      while (paddedRecord.length < 11) {
-        paddedRecord.push('');
-      }
-      csvLines.push(paddedRecord.join(','));
-    }
-    
-    fs.writeFileSync(csvFilePath, csvLines.join('\n') + '\n', 'utf-8');
+    writePortfolioRecords(updatedRecords);
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error modifying portfolio:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: getErrorMessage(error) }, { status: 500 });
   }
 }

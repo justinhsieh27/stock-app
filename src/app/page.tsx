@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,15 +9,89 @@ import { ArrowDownRight, ArrowUpRight, Loader2, RefreshCw, TrendingUp, Plus, Pen
 import { clsx } from "clsx";
 import { PortfolioDialog } from "@/components/PortfolioDialog";
 
+type PortfolioItem = {
+  Owner?: string;
+  Broker?: string;
+  Ticker?: string;
+  Name?: string;
+  Shares?: number;
+  Currency?: string;
+  CostPrice?: number;
+  CurrentPrice?: number;
+  CurrentValue?: number;
+  UnrealizedPL?: number;
+  ReturnPercent?: number;
+  CurrentValueTWD?: number;
+};
+
+type PortfolioData = {
+  portfolio: PortfolioItem[];
+  summary: {
+    totalCostTWD?: number;
+    currentValueTWD?: number;
+    unrealizedPLTWD?: number;
+    returnPercent?: number;
+    exchangeRateUSDToTWD?: number;
+    exchangeRateUSDTOSGD?: number;
+    exchangeRateUSDTOJPY?: number;
+  };
+};
+
+type LegendEntry = {
+  payload?: {
+    value?: number;
+  };
+};
+
+const SUPPORTED_CURRENCIES = new Set(['USD', 'TWD', 'SGD', 'JPY']);
+
 export default function Dashboard() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<PortfolioData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editingItem, setEditingItem] = useState<PortfolioItem | null>(null);
   const [showPieAmount, setShowPieAmount] = useState(false);
+  const activeRequestRef = useRef<AbortController | null>(null);
 
-  const handleDelete = async (item: any) => {
+  const fetchPortfolio = useCallback(async () => {
+    activeRequestRef.current?.abort();
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/portfolio', {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      const contentType = res.headers.get('content-type') || '';
+      const json = contentType.includes('application/json')
+        ? await res.json()
+        : { success: false, error: await res.text() };
+
+      if (controller.signal.aborted) return;
+
+      if (res.ok && json.success) {
+        setData({
+          portfolio: Array.isArray(json.data?.portfolio) ? json.data.portfolio : [],
+          summary: json.data?.summary || {},
+        });
+      } else {
+        setError(json.error || 'Failed to load portfolio data');
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setError(err instanceof Error ? err.message : 'Failed to load portfolio data');
+    } finally {
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  const handleDelete = async (item: PortfolioItem) => {
     if (!confirm(`Are you sure you want to delete ${item.Ticker} (${item.Broker})?`)) return;
     try {
       const res = await fetch("/api/portfolio", {
@@ -25,40 +99,30 @@ export default function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", payload: item }),
       });
-      if (res.ok) fetchPortfolio();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const fetchPortfolio = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/portfolio');
       const json = await res.json();
-      if (json.success) {
-        setData(json.data);
+      if (res.ok && json.success) {
+        fetchPortfolio();
       } else {
-        setError(json.error || 'Failed to load portfolio data');
+        setError(json.error || 'Failed to delete holding');
       }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete holding');
     }
   };
 
   useEffect(() => {
     fetchPortfolio();
-  }, []);
+    return () => {
+      activeRequestRef.current?.abort();
+    };
+  }, [fetchPortfolio]);
 
   const pieData = useMemo(() => {
     if (!data?.portfolio) return [];
     
-    const allocation = data.portfolio.reduce((acc: any, item: any) => {
+    const allocation = data.portfolio.reduce<Record<string, number>>((acc, item) => {
       const currency = item.Currency || 'USD';
-      const twdValue = item.CurrentValueTWD || 0; 
+      const twdValue = Number.isFinite(item.CurrentValueTWD) ? item.CurrentValueTWD || 0 : 0;
       acc[currency] = (acc[currency] || 0) + twdValue;
       return acc;
     }, {});
@@ -77,22 +141,25 @@ export default function Dashboard() {
   };
   const DEFAULT_COLORS = ['#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
-  const formatCurrency = (value: number, currency: string = 'TWD') => {
-    const fractionDigits = currency === 'JPY' ? 0 : 2;
+  const formatCurrency = (value?: number, currency: string = 'TWD') => {
+    const safeValue = Number.isFinite(value) ? value || 0 : 0;
+    const safeCurrency = SUPPORTED_CURRENCIES.has(currency) ? currency : 'TWD';
+    const fractionDigits = safeCurrency === 'JPY' ? 0 : 2;
     return new Intl.NumberFormat('zh-TW', {
       style: 'currency',
-      currency: currency,
+      currency: safeCurrency,
       minimumFractionDigits: fractionDigits,
       maximumFractionDigits: fractionDigits,
-    }).format(value);
+    }).format(safeValue);
   };
 
-  const formatPercent = (value: number) => {
+  const formatPercent = (value?: number) => {
+    const safeValue = Number.isFinite(value) ? value || 0 : 0;
     return new Intl.NumberFormat('zh-TW', {
       style: 'percent',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(value / 100);
+    }).format(safeValue / 100);
   };
 
   if (error) {
@@ -258,17 +325,18 @@ export default function Dashboard() {
                         ))}
                       </Pie>
                       <Tooltip 
-                        formatter={(value: any) => formatCurrency(Number(value))}
+                        formatter={(value: unknown) => formatCurrency(Number(value))}
                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                       />
                       <Legend 
-                        formatter={(value, entry: any) => {
-                          const { payload } = entry;
+                        formatter={(value, entry: unknown) => {
+                          const payload = (entry as LegendEntry)?.payload;
+                          const payloadValue = Number.isFinite(payload?.value) ? payload?.value || 0 : 0;
                           const total = pieData.reduce((acc, curr) => acc + curr.value, 0);
-                          const percent = (payload.value / total) * 100;
+                          const percent = total > 0 ? (payloadValue / total) * 100 : 0;
                           
                           if (showPieAmount) {
-                            return <span className="text-sm font-medium ml-1 text-slate-700 dark:text-slate-300">{`${value} (${formatCurrency(payload.value)})`}</span>;
+                            return <span className="text-sm font-medium ml-1 text-slate-700 dark:text-slate-300">{`${value} (${formatCurrency(payloadValue)})`}</span>;
                           }
                           return <span className="text-sm font-medium ml-1 text-slate-700 dark:text-slate-300">{`${value} (${percent.toFixed(1)}%)`}</span>;
                         }}
@@ -316,40 +384,45 @@ export default function Dashboard() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  data?.portfolio?.map((item: any, idx: number) => (
-                    <TableRow key={`${item.Ticker}-${idx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                      <TableCell className="font-medium">
-                        <div className="flex flex-col">
-                          <span>{item.Ticker}</span>
-                          <span className="text-xs text-muted-foreground">{item.Name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">{item.Shares}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(item.CostPrice, item.Currency)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(item.CurrentPrice, item.Currency)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(item.CurrentValue, item.Currency)}</TableCell>
-                      <TableCell className={clsx("text-right font-medium", item.UnrealizedPL >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
-                        {formatCurrency(item.UnrealizedPL, item.Currency)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                         <Badge variant={ item.ReturnPercent >= 0 ? "default" : "destructive" } className={clsx("ml-auto", 
-                            item.ReturnPercent >= 0 ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400" : ""
-                          )}>
-                          {formatPercent(item.ReturnPercent)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <button onClick={() => { setEditingItem(item); setDialogOpen(true); }} className="text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400">
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button onClick={() => handleDelete(item)} className="text-slate-500 hover:text-red-600 dark:hover:text-red-400">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  data?.portfolio?.map((item: PortfolioItem, idx: number) => {
+                    const unrealizedPL = item.UnrealizedPL ?? 0;
+                    const returnPercent = item.ReturnPercent ?? 0;
+
+                    return (
+                      <TableRow key={`${item.Ticker}-${idx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                        <TableCell className="font-medium">
+                          <div className="flex flex-col">
+                            <span>{item.Ticker}</span>
+                            <span className="text-xs text-muted-foreground">{item.Name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">{item.Shares}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(item.CostPrice, item.Currency)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(item.CurrentPrice, item.Currency)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(item.CurrentValue, item.Currency)}</TableCell>
+                        <TableCell className={clsx("text-right font-medium", unrealizedPL >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                          {formatCurrency(unrealizedPL, item.Currency)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={ returnPercent >= 0 ? "default" : "destructive" } className={clsx("ml-auto", 
+                              returnPercent >= 0 ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400" : ""
+                            )}>
+                            {formatPercent(returnPercent)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => { setEditingItem(item); setDialogOpen(true); }} className="text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400">
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => handleDelete(item)} className="text-slate-500 hover:text-red-600 dark:hover:text-red-400">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>

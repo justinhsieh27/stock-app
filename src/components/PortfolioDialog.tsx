@@ -22,8 +22,21 @@ import {
 export interface PortfolioDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialData?: any;
+  initialData?: {
+    Owner?: string;
+    Broker?: string;
+    Ticker?: string;
+    Name?: string;
+    Shares?: number;
+    Currency?: string;
+    CostPrice?: number;
+  } | null;
   onSuccess: () => void;
+}
+
+function parsePositiveNumber(value: string) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
 export function PortfolioDialog({
@@ -88,8 +101,11 @@ export function PortfolioDialog({
     setLoading(true);
     setError(null);
 
+    const shares = parsePositiveNumber(formData.Shares);
+    const costPrice = parsePositiveNumber(formData.CostPrice);
+
     // Basic validation
-    if (!formData.Ticker || !formData.Shares || !formData.CostPrice) {
+    if (!formData.Ticker.trim() || shares === null || costPrice === null) {
       setError("Ticker, Shares, and Cost Price are required.");
       setLoading(false);
       return;
@@ -103,21 +119,26 @@ export function PortfolioDialog({
           action: isEditing ? "edit" : "add",
           payload: {
             ...formData,
-            Shares: parseFloat(formData.Shares),
-            CostPrice: parseFloat(formData.CostPrice),
+            Ticker: formData.Ticker.trim(),
+            Shares: shares,
+            CostPrice: costPrice,
           },
         }),
       });
 
-      const json = await res.json();
-      if (json.success) {
+      const contentType = res.headers.get("content-type") || "";
+      const json = contentType.includes("application/json")
+        ? await res.json()
+        : { success: false, error: await res.text() };
+
+      if (res.ok && json.success) {
         onSuccess();
         onOpenChange(false);
       } else {
         setError(json.error || "Failed to save data");
       }
-    } catch (err: any) {
-      setError(err.message || "Something went wrong");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
     }
