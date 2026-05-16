@@ -5,6 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 PORT="${PORT:-3000}"
+PID_FILE="$ROOT_DIR/stock-app.pid"
+LOG_DIR="$ROOT_DIR/logs"
+LOG_FILE="$LOG_DIR/stock-app.log"
 
 collect_port_pids() {
   local port="$1"
@@ -67,6 +70,45 @@ stop_port_processes() {
   fi
 }
 
+is_process_running() {
+  local pid="$1"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+start_app_in_background() {
+  mkdir -p "$LOG_DIR"
+
+  echo "Starting Stock App in the background on http://localhost:${PORT}"
+  if command -v setsid >/dev/null 2>&1; then
+    setsid npm run dev -- --port "$PORT" >"$LOG_FILE" 2>&1 < /dev/null &
+  else
+    nohup npm run dev -- --port "$PORT" >"$LOG_FILE" 2>&1 < /dev/null &
+  fi
+
+  APP_PID="$!"
+  echo "$APP_PID" > "$PID_FILE"
+}
+
+wait_for_app_start() {
+  local pids
+
+  for _ in $(seq 1 30); do
+    pids="$(collect_port_pids "$PORT")"
+    if [ -n "$pids" ]; then
+      echo "$pids" | head -n 1 > "$PID_FILE"
+      return 0
+    fi
+
+    if ! is_process_running "$APP_PID"; then
+      break
+    fi
+
+    sleep 1
+  done
+
+  return 1
+}
+
 if ! command -v npm >/dev/null 2>&1; then
   echo "Error: npm is not installed. Please run ./install.sh first."
   exit 1
@@ -83,5 +125,17 @@ fi
 
 stop_port_processes "$PORT"
 
-echo "Starting Stock App on http://localhost:${PORT}"
-npm run dev -- --port "$PORT"
+start_app_in_background
+
+if wait_for_app_start; then
+  APP_PID="$(cat "$PID_FILE")"
+  echo "Stock App started."
+  echo "PID: $APP_PID"
+  echo "Log: $LOG_FILE"
+  echo "Stop it with: kill $APP_PID"
+else
+  echo "Error: Stock App failed to start. Recent log output:"
+  tail -n 40 "$LOG_FILE" || true
+  rm -f "$PID_FILE"
+  exit 1
+fi

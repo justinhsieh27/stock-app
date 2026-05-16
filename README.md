@@ -27,6 +27,20 @@ Start the web app with one command:
 
 The app opens on [http://localhost:3000](http://localhost:3000). Before starting, `run.sh` checks whether another process is using port 3000 and stops it first.
 
+`run.sh` starts the app in the background, writes the process id to `stock-app.pid`, and writes logs to `logs/stock-app.log`.
+
+To watch the running app log:
+
+```bash
+tail -f logs/stock-app.log
+```
+
+To stop the app:
+
+```bash
+kill "$(cat stock-app.pid)"
+```
+
 To use a different port:
 
 ```bash
