@@ -5,7 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recha
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ArrowDownRight, ArrowUpRight, Loader2, RefreshCw, TrendingUp, Plus, Pencil, Trash2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Loader2, RefreshCw, TrendingUp, Plus, Pencil, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import { PortfolioDialog } from "@/components/PortfolioDialog";
 
@@ -52,10 +52,6 @@ export default function Dashboard() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<PortfolioItem | null>(null);
   const [showPieAmount, setShowPieAmount] = useState(false);
-  const [sortConfig, setSortConfig] = useState<{
-    key: keyof PortfolioItem;
-    direction: 'asc' | 'desc';
-  } | null>(null);
   const activeRequestRef = useRef<AbortController | null>(null);
 
   const fetchPortfolio = useCallback(async () => {
@@ -120,49 +116,6 @@ export default function Dashboard() {
       activeRequestRef.current?.abort();
     };
   }, [fetchPortfolio]);
-
-  const requestSort = (key: keyof PortfolioItem) => {
-    let direction: 'asc' | 'desc' | null = 'asc';
-    if (sortConfig && sortConfig.key === key) {
-      if (sortConfig.direction === 'asc') {
-        direction = 'desc';
-      } else {
-        direction = null;
-      }
-    }
-    if (direction) {
-      setSortConfig({ key, direction });
-    } else {
-      setSortConfig(null);
-    }
-  };
-
-  const sortedPortfolio = useMemo(() => {
-    if (!data?.portfolio) return [];
-    const items = [...data.portfolio];
-    if (!sortConfig) return items;
-
-    return items.sort((a, b) => {
-      const aVal = a[sortConfig.key];
-      const bVal = b[sortConfig.key];
-
-      if (aVal === undefined && bVal === undefined) return 0;
-      if (aVal === undefined) return 1;
-      if (bVal === undefined) return -1;
-
-      if (typeof aVal === 'string' && typeof bVal === 'string') {
-        return sortConfig.direction === 'asc'
-          ? aVal.localeCompare(bVal, 'zh-TW', { numeric: true })
-          : bVal.localeCompare(aVal, 'zh-TW', { numeric: true });
-      }
-
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
-      }
-
-      return 0;
-    });
-  }, [data?.portfolio, sortConfig]);
 
   const pieData = useMemo(() => {
     if (!data?.portfolio) return [];
@@ -405,97 +358,13 @@ export default function Dashboard() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead 
-                    onClick={() => requestSort('Ticker')} 
-                    className="cursor-pointer select-none hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100 transition-colors group"
-                  >
-                    <div className="flex items-center gap-1">
-                      <span>Asset</span>
-                      {sortConfig?.key === 'Ticker' ? (
-                        sortConfig.direction === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                      ) : (
-                        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-                      )}
-                    </div>
-                  </TableHead>
-                  <TableHead 
-                    onClick={() => requestSort('Shares')} 
-                    className="text-right cursor-pointer select-none hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100 transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>Shares</span>
-                      {sortConfig?.key === 'Shares' ? (
-                        sortConfig.direction === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                      ) : (
-                        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-                      )}
-                    </div>
-                  </TableHead>
-                  <TableHead 
-                    onClick={() => requestSort('CostPrice')} 
-                    className="text-right cursor-pointer select-none hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100 transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>Cost Price</span>
-                      {sortConfig?.key === 'CostPrice' ? (
-                        sortConfig.direction === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                      ) : (
-                        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-                      )}
-                    </div>
-                  </TableHead>
-                  <TableHead 
-                    onClick={() => requestSort('CurrentPrice')} 
-                    className="text-right cursor-pointer select-none hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100 transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>Live Price</span>
-                      {sortConfig?.key === 'CurrentPrice' ? (
-                        sortConfig.direction === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                      ) : (
-                        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-                      )}
-                    </div>
-                  </TableHead>
-                  <TableHead 
-                    onClick={() => requestSort('CurrentValue')} 
-                    className="text-right cursor-pointer select-none hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100 transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>Current Value</span>
-                      {sortConfig?.key === 'CurrentValue' ? (
-                        sortConfig.direction === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                      ) : (
-                        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-                      )}
-                    </div>
-                  </TableHead>
-                  <TableHead 
-                    onClick={() => requestSort('UnrealizedPL')} 
-                    className="text-right cursor-pointer select-none hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100 transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>Unrealized P/L</span>
-                      {sortConfig?.key === 'UnrealizedPL' ? (
-                        sortConfig.direction === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                      ) : (
-                        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-                      )}
-                    </div>
-                  </TableHead>
-                  <TableHead 
-                    onClick={() => requestSort('ReturnPercent')} 
-                    className="text-right cursor-pointer select-none hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100 transition-colors group"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>Return %</span>
-                      {sortConfig?.key === 'ReturnPercent' ? (
-                        sortConfig.direction === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                      ) : (
-                        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-                      )}
-                    </div>
-                  </TableHead>
+                  <TableHead>Asset</TableHead>
+                  <TableHead className="text-right">Shares</TableHead>
+                  <TableHead className="text-right">Cost Price</TableHead>
+                  <TableHead className="text-right">Live Price</TableHead>
+                  <TableHead className="text-right">Current Value</TableHead>
+                  <TableHead className="text-right">Unrealized P/L</TableHead>
+                  <TableHead className="text-right">Return %</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -508,14 +377,14 @@ export default function Dashboard() {
                       ))}
                     </TableRow>
                   ))
-                ) : sortedPortfolio.length === 0 ? (
+                ) : data?.portfolio?.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No holdings found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  sortedPortfolio.map((item: PortfolioItem, idx: number) => {
+                  data?.portfolio?.map((item: PortfolioItem, idx: number) => {
                     const unrealizedPL = item.UnrealizedPL ?? 0;
                     const returnPercent = item.ReturnPercent ?? 0;
 
