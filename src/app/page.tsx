@@ -5,7 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recha
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ArrowDownRight, ArrowUpRight, Loader2, RefreshCw, TrendingUp, Plus, Pencil, Trash2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Loader2, RefreshCw, TrendingUp, Plus, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { clsx } from "clsx";
 import { PortfolioDialog } from "@/components/PortfolioDialog";
 
@@ -21,8 +21,13 @@ type PortfolioItem = {
   CurrentValue?: number;
   UnrealizedPL?: number;
   ReturnPercent?: number;
+  TotalCostTWD?: number;
   CurrentValueTWD?: number;
+  UnrealizedPLTWD?: number;
 };
+
+type SortField = 'Ticker' | 'Shares' | 'CostPrice' | 'CurrentPrice' | 'CurrentValue' | 'UnrealizedPL' | 'ReturnPercent';
+type SortOrder = 'asc' | 'desc' | null;
 
 type PortfolioData = {
   portfolio: PortfolioItem[];
@@ -52,7 +57,125 @@ export default function Dashboard() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<PortfolioItem | null>(null);
   const [showPieAmount, setShowPieAmount] = useState(false);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortOrder, setSortOrder] = useState<SortOrder>(null);
   const activeRequestRef = useRef<AbortController | null>(null);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortOrder === 'asc') {
+        setSortOrder('desc');
+      } else if (sortOrder === 'desc') {
+        setSortField(null);
+        setSortOrder(null);
+      } else {
+        setSortOrder('asc');
+      }
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const sortedPortfolio = useMemo(() => {
+    if (!data?.portfolio) return [];
+    const items = [...data.portfolio];
+    if (!sortField || !sortOrder) return items;
+
+    return items.sort((a, b) => {
+      let valA: string | number = 0;
+      let valB: string | number = 0;
+
+      switch (sortField) {
+        case 'Ticker':
+          valA = (a.Ticker || '').toLowerCase();
+          valB = (b.Ticker || '').toLowerCase();
+          break;
+        case 'Shares':
+          valA = a.Shares || 0;
+          valB = b.Shares || 0;
+          break;
+        case 'CostPrice': {
+          const costTwdA = a.TotalCostTWD ?? 0;
+          const sharesA = a.Shares || 1;
+          const costTwdB = b.TotalCostTWD ?? 0;
+          const sharesB = b.Shares || 1;
+          valA = costTwdA / sharesA;
+          valB = costTwdB / sharesB;
+          break;
+        }
+        case 'CurrentPrice': {
+          const valTwdA = a.CurrentValueTWD ?? 0;
+          const sharesA = a.Shares || 1;
+          const valTwdB = b.CurrentValueTWD ?? 0;
+          const sharesB = b.Shares || 1;
+          valA = valTwdA / sharesA;
+          valB = valTwdB / sharesB;
+          break;
+        }
+        case 'CurrentValue':
+          valA = a.CurrentValueTWD ?? 0;
+          valB = b.CurrentValueTWD ?? 0;
+          break;
+        case 'UnrealizedPL':
+          valA = a.UnrealizedPLTWD ?? 0;
+          valB = b.UnrealizedPLTWD ?? 0;
+          break;
+        case 'ReturnPercent':
+          valA = a.ReturnPercent ?? 0;
+          valB = b.ReturnPercent ?? 0;
+          break;
+      }
+
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        return sortOrder === 'asc'
+          ? valA.localeCompare(valB)
+          : valB.localeCompare(valA);
+      } else {
+        const numA = Number(valA);
+        const numB = Number(valB);
+        return sortOrder === 'asc' ? numA - numB : numB - numA;
+      }
+    });
+  }, [data?.portfolio, sortField, sortOrder]);
+
+  const renderSortHeader = (label: string, field: SortField, className = "") => {
+    const isSorted = sortField === field;
+    const isRightAligned = className.includes("text-right");
+    return (
+      <TableHead 
+        className={clsx(
+          "group cursor-pointer select-none hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors", 
+          className
+        )}
+        onClick={() => handleSort(field)}
+      >
+        <div className={clsx("flex items-center gap-1", isRightAligned ? "justify-end" : "justify-start")}>
+          {isRightAligned && !isSorted && (
+            <ArrowUpDown className="h-3.5 w-3.5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
+          {isRightAligned && isSorted && (
+            sortOrder === 'asc' ? (
+              <ArrowUp className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            ) : (
+              <ArrowDown className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            )
+          )}
+          <span>{label}</span>
+          {!isRightAligned && isSorted && (
+            sortOrder === 'asc' ? (
+              <ArrowUp className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            ) : (
+              <ArrowDown className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            )
+          )}
+          {!isRightAligned && !isSorted && (
+            <ArrowUpDown className="h-3.5 w-3.5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
+        </div>
+      </TableHead>
+    );
+  };
 
   const fetchPortfolio = useCallback(async () => {
     activeRequestRef.current?.abort();
@@ -358,13 +481,13 @@ export default function Dashboard() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Asset</TableHead>
-                  <TableHead className="text-right">Shares</TableHead>
-                  <TableHead className="text-right">Cost Price</TableHead>
-                  <TableHead className="text-right">Live Price</TableHead>
-                  <TableHead className="text-right">Current Value</TableHead>
-                  <TableHead className="text-right">Unrealized P/L</TableHead>
-                  <TableHead className="text-right">Return %</TableHead>
+                  {renderSortHeader("Asset", "Ticker")}
+                  {renderSortHeader("Shares", "Shares", "text-right")}
+                  {renderSortHeader("Cost Price", "CostPrice", "text-right")}
+                  {renderSortHeader("Live Price", "CurrentPrice", "text-right")}
+                  {renderSortHeader("Current Value", "CurrentValue", "text-right")}
+                  {renderSortHeader("Unrealized P/L", "UnrealizedPL", "text-right")}
+                  {renderSortHeader("Return %", "ReturnPercent", "text-right")}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -377,14 +500,14 @@ export default function Dashboard() {
                       ))}
                     </TableRow>
                   ))
-                ) : data?.portfolio?.length === 0 ? (
+                ) : sortedPortfolio.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No holdings found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  data?.portfolio?.map((item: PortfolioItem, idx: number) => {
+                  sortedPortfolio.map((item: PortfolioItem, idx: number) => {
                     const unrealizedPL = item.UnrealizedPL ?? 0;
                     const returnPercent = item.ReturnPercent ?? 0;
 
