@@ -23,8 +23,8 @@ fi
 echo "Installing dependencies..."
 npm install
 
-echo "Building production bundle..."
-npm run build
+echo "Building production bundle (low-memory mode)..."
+NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=512}" npm run build
 
 chmod +x "$ROOT_DIR/run.sh"
 

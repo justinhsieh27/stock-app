@@ -135,16 +135,17 @@ if [ ! -d "$ROOT_DIR/node_modules" ]; then
   "$ROOT_DIR/install.sh"
 fi
 
-if [ "$MODE" != "dev" ] && needs_build; then
-  echo "Building production bundle..."
-  npm run build
-fi
-
 if ! command -v lsof >/dev/null 2>&1 && ! command -v fuser >/dev/null 2>&1 && ! command -v ss >/dev/null 2>&1; then
   echo "Warning: lsof, fuser, and ss are not available; cannot check whether port ${PORT} is already in use."
 fi
 
+# Stop any running instance BEFORE building to free up RAM on small instances
 stop_port_processes "$PORT"
+
+if [ "$MODE" != "dev" ] && needs_build; then
+  echo "Building production bundle (low-memory mode)..."
+  NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=512}" npm run build
+fi
 
 start_app_in_background
 
