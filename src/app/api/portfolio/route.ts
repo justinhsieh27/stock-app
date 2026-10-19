@@ -135,12 +135,22 @@ function writePortfolioRecords(records: string[][]) {
 }
 
 async function quoteWithTimeout(symbols: string | string[]) {
-  return Promise.race([
-    yahooFinance.quote(symbols),
-    new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Yahoo Finance quote request timed out')), QUOTE_TIMEOUT_MS);
-    })
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      yahooFinance.quote(symbols),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('Yahoo Finance quote request timed out')),
+          QUOTE_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function quoteArray(result: unknown) {

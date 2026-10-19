@@ -23,6 +23,9 @@ fi
 echo "Installing dependencies..."
 npm install
 
+echo "Building production bundle..."
+npm run build
+
 chmod +x "$ROOT_DIR/run.sh"
 
 echo

@@ -5,9 +5,20 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 PORT="${PORT:-3000}"
+MODE="${MODE:-prod}"
 PID_FILE="$ROOT_DIR/stock-app.pid"
 LOG_DIR="$ROOT_DIR/logs"
 LOG_FILE="$LOG_DIR/stock-app.log"
+
+needs_build() {
+  if [ ! -f "$ROOT_DIR/.next/BUILD_ID" ]; then
+    return 0
+  fi
+  if [ -n "$(find "$ROOT_DIR/src" "$ROOT_DIR/package.json" "$ROOT_DIR/next.config.js" -newer "$ROOT_DIR/.next/BUILD_ID" 2>/dev/null)" ]; then
+    return 0
+  fi
+  return 1
+}
 
 collect_port_pids() {
   local port="$1"
@@ -78,11 +89,16 @@ is_process_running() {
 start_app_in_background() {
   mkdir -p "$LOG_DIR"
 
-  echo "Starting Stock App in the background on http://localhost:${PORT}"
+  local npm_script="start"
+  if [ "$MODE" = "dev" ]; then
+    npm_script="dev"
+  fi
+
+  echo "Starting Stock App (${MODE} mode) in the background on http://localhost:${PORT}"
   if command -v setsid >/dev/null 2>&1; then
-    setsid npm run dev -- --port "$PORT" >"$LOG_FILE" 2>&1 < /dev/null &
+    setsid npm run "$npm_script" -- --port "$PORT" >"$LOG_FILE" 2>&1 < /dev/null &
   else
-    nohup npm run dev -- --port "$PORT" >"$LOG_FILE" 2>&1 < /dev/null &
+    nohup npm run "$npm_script" -- --port "$PORT" >"$LOG_FILE" 2>&1 < /dev/null &
   fi
 
   APP_PID="$!"
@@ -117,6 +133,11 @@ fi
 if [ ! -d "$ROOT_DIR/node_modules" ]; then
   echo "Dependencies are missing. Running install first..."
   "$ROOT_DIR/install.sh"
+fi
+
+if [ "$MODE" != "dev" ] && needs_build; then
+  echo "Building production bundle..."
+  npm run build
 fi
 
 if ! command -v lsof >/dev/null 2>&1 && ! command -v fuser >/dev/null 2>&1 && ! command -v ss >/dev/null 2>&1; then
